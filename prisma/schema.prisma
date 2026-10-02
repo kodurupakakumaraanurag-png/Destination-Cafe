@@ -1,0 +1,329 @@
+// Prisma Schema for Destination Cafe Enterprise CRM & Lead Management Platform
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ------------------------------------------------------
+// ENUMS
+// ------------------------------------------------------
+
+enum UserRole {
+  ADMIN
+  MANAGER
+  SALES
+  ANALYST
+  VIEWER
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+  IN_PROGRESS
+  UNQUALIFIED
+  CONVERTED
+  ARCHIVED
+}
+
+enum TaskStatus {
+  TODO
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  OVERDUE
+  CANCELLED
+}
+
+enum OpportunityStage {
+  QUALIFIED
+  PROPOSAL
+  NEGOTIATION
+  WON
+  LOST
+  PROSPECTING
+  QUALIFICATION
+  CLOSED_WON
+  CLOSED_LOST
+}
+
+enum ProjectStatus {
+  PLANNED
+  ACTIVE
+  PLANNING
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ActivityType {
+  CALL
+  EMAIL
+  LINKEDIN
+  MEETING
+  NOTE
+  FOLLOW_UP
+  STATUS_CHANGE
+  SYSTEM_EVENT
+}
+
+enum ProjectAllocationStatus {
+  UNASSIGNED
+  AVAILABLE_FOR_SELECTION
+  ALLOCATED
+  COMPLETED
+}
+
+// ------------------------------------------------------
+// MODELS
+// ------------------------------------------------------
+
+model Role {
+  id          String   @id @default(cuid())
+  name        UserRole @unique
+  description String?
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  roleId        String?
+  role          Role?     @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  userRole      UserRole  @default(SALES)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  assignedLeads     Lead[]           @relation("AssignedUserLeads")
+  assignedTasks     Task[]
+  createdActivities Activity[]
+  opportunities     Opportunity[]
+  managedProjects   Project[]        @relation("ProjectManager")
+  projectMembers    ProjectMember[]
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+}
+
+model Lead {
+  id String @id @default(cuid())
+
+  // --- Exact 26-column Intake Schema Fields ---
+  company                 String
+  domain                  String?
+  location                String?                  @db.Text
+  website                 String?
+  contactPerson           String?
+  designation             String?
+  phone                   String?
+  email                   String?
+  businessUnderstanding   String?                  @db.Text
+  possibleProblem         String?                  @db.Text
+  requirement             String?                  @db.Text
+  opportunity             String?                  @db.Text
+  priority                Priority                 @default(MEDIUM)
+  status                  LeadStatus               @default(NEW)
+  nextAction              String?                  @db.Text
+  dateAdded               DateTime?
+  source                  String?
+  contactMethod           String?
+  digitalPresenceScore    Int                      @default(0) // 0-5
+  hiringActivityScore     Int                      @default(0) // 0-5
+  techStackFitScore       Int                      @default(0) // 0-5
+  fundingRevenueScore     Int                      @default(0) // 0-5
+  projectUrgencyScore     Int                      @default(0) // 0-5
+  budgetClarityScore      Int                      @default(0) // 0-5
+  recordedLeadScore       Int?                     // Recorded lead score (intake discrepancy support)
+  calculatedLeadScore     Int?                     // Sum of 6 score fields
+  projectAllocationStatus ProjectAllocationStatus @default(AVAILABLE_FOR_SELECTION)
+
+  // --- Technical & Metadata Fields ---
+  assignedUserId String?
+  assignedUser   User?        @relation("AssignedUserLeads", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  importBatchId  String?
+  importBatch    ImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
+  archivedAt     DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // --- Normalized Relations ---
+  contacts      Contact[]
+  leadScores    LeadScore[]
+  activities    Activity[]
+  tasks         Task[]
+  opportunities Opportunity[]
+  projects      Project[]
+  importErrors  ImportError[]
+}
+
+model LeadScore {
+  id                   String   @id @default(cuid())
+  leadId               String
+  lead                 Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  digitalPresenceScore Int      @default(0)
+  hiringActivityScore  Int      @default(0)
+  techStackFitScore    Int      @default(0)
+  fundingRevenueScore  Int      @default(0)
+  projectUrgencyScore  Int      @default(0)
+  budgetClarityScore   Int      @default(0)
+  recordedLeadScore    Int?
+  calculatedLeadScore  Int?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+}
+
+model Contact {
+  id          String   @id @default(cuid())
+  leadId      String
+  lead        Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  name        String?
+  designation String?
+  phone       String?
+  email       String?
+  notes       String?  @db.Text
+  isPrimary   Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Activity {
+  id          String       @id @default(cuid())
+  leadId      String?
+  lead        Lead?        @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  userId      String?
+  user        User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  type        ActivityType
+  title       String
+  description String?      @db.Text
+  createdAt   DateTime     @default(now())
+}
+
+model Task {
+  id             String     @id @default(cuid())
+  title          String
+  description    String?    @db.Text
+  status         TaskStatus @default(PENDING)
+  priority       Priority   @default(MEDIUM)
+  dueDate        DateTime?
+  leadId         String?
+  lead           Lead?      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignedUserId String?
+  assignedUser   User?      @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+}
+
+model Opportunity {
+  id             String           @id @default(cuid())
+  name           String
+  leadId         String
+  lead           Lead             @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  stage          OpportunityStage @default(QUALIFIED)
+  value          Float?
+  probability    Int?             @default(50)
+  assignedUserId String?
+  assignedUser   User?            @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  closeDate      DateTime?
+  notes          String?          @db.Text
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  projects       Project[]
+}
+
+model Project {
+  id               String                  @id @default(cuid())
+  name             String
+  description      String?                 @db.Text
+  leadId           String?
+  lead             Lead?                   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  opportunityId    String?
+  opportunity      Opportunity?            @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
+  status           ProjectStatus           @default(PLANNED)
+  allocationStatus ProjectAllocationStatus @default(AVAILABLE_FOR_SELECTION)
+  startDate        DateTime?
+  targetDate       DateTime?
+  projectManagerId String?
+  projectManager   User?                   @relation("ProjectManager", fields: [projectManagerId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
+  members          ProjectMember[]
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String?
+  joinedAt  DateTime @default(now())
+
+  @@unique([projectId, userId])
+}
+
+model ImportBatch {
+  id          String        @id @default(cuid())
+  fileName    String
+  totalRows   Int           @default(0)
+  successRows Int           @default(0)
+  failedRows  Int           @default(0)
+  status      String        @default("COMPLETED")
+  createdAt   DateTime      @default(now())
+  leads       Lead[]
+  errors      ImportError[]
+}
+
+model ImportError {
+  id            String      @id @default(cuid())
+  importBatchId String
+  importBatch   ImportBatch @relation(fields: [importBatchId], references: [id], onDelete: Cascade)
+  leadId        String?
+  lead          Lead?       @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  rowNumber     Int
+  fieldName     String?
+  errorMessage  String
+  rawData       String?     @db.Text
+  createdAt     DateTime    @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String
+  entityId  String?
+  details   String?  @db.Text
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String   @db.Text
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
